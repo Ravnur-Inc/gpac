@@ -804,7 +804,7 @@ static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi
 	routein_repair_compute_entire_all_costs(rsi, threshold);
 
 	for(i=0; i < rsi->nb_ranges; i++) {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Frame ID #%3u: %6d bytes & %3d requests \n", rsi->srd[i].id, rsi->srd[i].bytes_cost, rsi->srd[i].reqs_cost));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Frame ID #%3u: %6d bytes & %3d requests | %6u total bytes; %3d total requests \n", rsi->srd[i].id, rsi->srd[i].bytes_cost, rsi->srd[i].reqs_cost, rsi->srd[i].total_bytes_cost, rsi->srd[i].total_reqs_cost));
 	}
 
 	SampleRangeDependency* sorted_samples[rsi->nb_ranges];
