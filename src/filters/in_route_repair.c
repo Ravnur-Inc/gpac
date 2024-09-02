@@ -696,7 +696,6 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	}
 
 	//Kahn's algorithm for toological sort
-	//add leaves samples at the end of sorted_samples
 	for(i=0; i < nb_ranges; i++) {
 		if(incoming[i] == 0) {
 			sorted_samples[sort_i] = &srd[i];
@@ -705,8 +704,11 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	}
 	
 	for(i=0; i < nb_ranges; i++) {
-		for(j=0; j < srd[i].nb_rev_deps; j++) {
-			u32 sample_i = srd[i].rev_dep_ids[j];
+		assert(sort_i > i); 
+		SampleRangeDependency* sample = sorted_samples[i];
+
+		for(j=0; j < sample->nb_rev_deps; j++) {
+			u32 sample_i = sample->rev_dep_ids[j];
 
 			incoming[sample_i]--;
 			if(incoming[sample_i] == 0) {
