@@ -117,7 +117,7 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 		r->size = samp->dataLength;
 		r->offset = (u32) offset;
 
-		// initialize costs
+		//initialize costs
 		r->bytes_cost = 0;
 		r->reqs_cost = 0;
 
@@ -441,7 +441,7 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 }
 
 static Bool route_repair_is_range_completely_received(GF_LCTFragInfo *frags, u32 nb_frags, u32 start, u32 size) {
-	// check if intervale [start, start+size[ belongs to frags list of intervales
+	//check if intervale [start, start+size[ belongs to frags list of intervales
 	u32 i;
 	if(start > GF_UINT_MAX - size) return GF_FALSE;
 	for(i=0; i < nb_frags; i++) {
@@ -458,8 +458,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 	u32 min_size = 1024;
 	u32 box_size, box_type;
 
-	while(pos+8 <= finfo->total_size) { // if
-
+	while(pos+8 <= finfo->total_size) {
 		if(!route_repair_is_range_completely_received(finfo->frags, finfo->nb_frags, pos, 8)) {
 			RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
 			if (!rr) {
@@ -495,7 +494,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 						GF_SAFEALLOC(rr, RouteRepairRange);
 						if (!rr) {
 							rsi->nb_errors++;
-							// check next box
+							//check next box
 							pos += box_size;
 							continue;
 						}
@@ -520,7 +519,6 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 
 
 static void routein_repair_get_costs(RepairSegmentInfo *rsi, SampleRangeDependency *r, u32 threshold, u32 *nb_bytes, u32 *nb_requests) {
-// add byte ranges to "rsi->ranges" for repair
 	*nb_requests = 0;
 	*nb_bytes = 0;
 	u32 last_br_end = 0, last_br_start = 0;
@@ -543,11 +541,8 @@ static void routein_repair_get_costs(RepairSegmentInfo *rsi, SampleRangeDependen
 			br_end = rsi->finfo.total_size;
 		}
 
-		//this was correctly received !
 		if (br_end <= br_start) continue;
-		//byte range is before sample range
 		if (br_end <= r->offset) continue;
-
 		if (br_end > r->offset && br_start < r->offset+r->size) {
 
 			if(last_br_start < last_br_end && br_start - last_br_end < threshold) {
@@ -560,7 +555,6 @@ static void routein_repair_get_costs(RepairSegmentInfo *rsi, SampleRangeDependen
 				last_br_end = MIN(r->offset + r->size, br_end);
 			}
 		}
-		//byte range is after sample range
 		if (br_start >= r->offset + r->size) {
 			break;
 		}
@@ -607,7 +601,7 @@ static void routein_repair_compute_entire_all_costs(RepairSegmentInfo *rsi, u32 
 }
 
 static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, u32 index, u32 threshold) {
-	// add byte ranges to "rsi->ranges" for repair
+	//add byte ranges to "rsi->ranges" for repair
 	u32 nb_rr = 0;
 	u32 i;
 	RouteRepairRange *rr = NULL;
@@ -656,7 +650,6 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 				} else {
 					memset(rr, 0, sizeof(RouteRepairRange));
 				}
-
 				rr->br_start = MAX(r->offset, br_start);
 				rr->br_end = MIN(r->offset + r->size, br_end);
 				rr->sample_id = index;
@@ -684,11 +677,9 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 }
 
 static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u32 nb_ranges, SampleRangeDependency* sorted_samples[]) {
-	
 	s32 i;
 	u32 j;
 	s32 sort_i = 0;
-	
 	int incoming[nb_ranges];
 
 	for(i=0; i < nb_ranges; i++) {
@@ -749,7 +740,7 @@ static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *r
 	//TODO, select byte range priorities & co, check if we want multiple byte ranges??
 	for (i=0; i<=finfo->nb_frags; i++) {
 		u32 br_start = 0, br_end = 0;
-		// first range
+		//first range
 		if (!i) {
 			br_end = finfo->frags[i].offset;
 		}
@@ -802,17 +793,17 @@ static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi
 		return;
 	}
 
-	// computes costs
+#ifndef GPAC_DISABLE_LOG
+	//compute costs
 	routein_repair_compute_entire_all_costs(rsi, threshold);
-
 	for(i=0; i < rsi->nb_ranges; i++) {
 		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Frame ID #%3u: %6d bytes & %3d requests | %6u total bytes; %3d total requests \n", rsi->srd[i].id, rsi->srd[i].bytes_cost, rsi->srd[i].reqs_cost, rsi->srd[i].total_bytes_cost, rsi->srd[i].total_reqs_cost));
 	}
+#endif
 
 	SampleRangeDependency* sorted_samples[rsi->nb_ranges];
 
 	route_repair_topological_sort_samples(rsi->srd, rsi->nb_ranges, sorted_samples);
-
 	for(i=0; i<rsi->nb_ranges; i++) {
 		routein_repair_isobmf_frames(ctx, rsi, i, threshold);
 	}
