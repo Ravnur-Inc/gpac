@@ -937,23 +937,27 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	if (!rsi) return;
 
 	//notify routedmx we have received a byte range
-	if (!rsi->removed) {
-		gf_route_dmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_start + rsess->range->done);
-		u32 index = rsess->range->sample_id;
-		u32 req = 0;
+	if(rsess->range->done) {
+		if (!rsi->removed) {
+			gf_route_dmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_start + rsess->range->done);
+			s32 index = rsess->range->sample_id;
+			u32 req = 0;
 
-		if(rsess->range->br_end == rsess->range->br_start + rsess->range->done) {
-			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u[ of object (TSI=%u, TOI=%u) \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi));
-			req = 1;
-		} else {
-			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u[ of object (TSI=%u, TOI=%u). Only sub-interval [%u, %u[ was received.. \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
-		}
+			if(rsess->range->br_end == rsess->range->br_start + rsess->range->done) {
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u[ of object (TSI=%u, TOI=%u) \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi));
+				req = 1;
+			} else {
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u[ of object (TSI=%u, TOI=%u). Only sub-interval [%u, %u[ was received.. \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
+			}
 
-		if(index >= 0) {
-			rsi->srd[index].reqs_cost -= req;
-			rsi->srd[index].bytes_cost -= rsess->range->done;
-			routein_repair_propagate_costs(rsi, - rsess->range->done, -req, index);
+			if(index >= 0) {
+				rsi->srd[index].reqs_cost -= req;
+				rsi->srd[index].bytes_cost -= rsess->range->done;
+				routein_repair_propagate_costs(rsi, -rsess->range->done, -req, index);
+			}
 		}
+	} else {
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair data interval - Nothing has been received for interval [%u, %u[ of object (TSI=%u, TOI=%u). \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi));
 	}
 
 	rsess->current_si = NULL;
