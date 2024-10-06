@@ -73,6 +73,11 @@ static void routein_finalize(GF_Filter *filter)
 	}
 	gf_list_transfer(ctx->seg_repair_reservoir, ctx->seg_repair_queue);
 	gf_list_del(ctx->seg_repair_queue);
+	while (gf_list_count(ctx->repair_servers)) {
+		char *tmp = gf_list_pop_back(ctx->repair_servers);
+		gf_free(tmp);
+	}
+	gf_list_del(ctx->repair_servers);
 	while (gf_list_count(ctx->seg_repair_reservoir)) {
 		RepairSegmentInfo *rsi = gf_list_pop_back(ctx->seg_repair_reservoir);
 		gf_list_transfer(ctx->seg_range_reservoir, rsi->ranges);
@@ -526,7 +531,7 @@ static GF_Err routein_process(GF_Filter *filter)
 				else {
 					u32 diff = gf_sys_clock() - ctx->last_timeout;
 					if (diff > ctx->timeout) {
-						GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[%s] No data for %d ms, aborting\n", ctx->log_name, diff));
+						GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[%s] No data for %u ms, aborting\n", ctx->log_name, diff));
 						routein_set_eos(filter, ctx);
 						return GF_EOS;
 					}
@@ -554,7 +559,7 @@ static GF_Err routein_process(GF_Filter *filter)
 	if (!ctx->tune_time) {
 	 	u32 diff = gf_sys_clock() - ctx->start_time;
 	 	if (diff>ctx->timeout) {
-			GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[%s] No data for %d ms, aborting\n", ctx->log_name, diff));
+			GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[%s] No data for %u ms, aborting\n", ctx->log_name, diff));
 			gf_filter_setup_failure(filter, GF_SERVICE_ERROR);
 			routein_set_eos(filter, ctx);
 			return GF_EOS;
@@ -686,6 +691,20 @@ static GF_Err routein_initialize(GF_Filter *filter)
 
 	ctx->nb_playing = 1;
 	ctx->initial_play_forced = GF_TRUE;
+	if (ctx->repair_urls.nb_items > 0) {
+		u8 i;
+		ctx->repair = MAX(ROUTEIN_REPAIR_FULL, ctx->repair);
+		ctx->repair_servers = gf_list_new();
+		for(i=0; i<ctx->repair_urls.nb_items; i++) {
+			RouteRepairServer* server;
+			GF_SAFEALLOC(server, RouteRepairServer);
+			server->accept_ranges = GF_TRUE;
+			server->is_up = GF_TRUE;
+			server->support_h2 = GF_TRUE;
+			server->url = ctx->repair_urls.vals[i];
+			gf_list_add(ctx->repair_servers, server);
+		}
+	}
 
 	if (ctx->repair >= ROUTEIN_REPAIR_FULL) {
 		if (!ctx->max_sess) ctx->max_sess = 1;
@@ -736,7 +755,7 @@ static const GF_FilterArgs ROUTEInArgs[] =
 	{ OFFS(odir), "output directory for standalone mode", GF_PROP_STRING, NULL, NULL, GF_FS_ARG_HINT_ADVANCED},
 	{ OFFS(reorder), "consider packets are not always in order - if false, this will evaluate an LCT object as done when TOI changes", GF_PROP_BOOL, "true", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(cloop), "check for loops based on TOI (used for capture replay)", GF_PROP_BOOL, "false", NULL, 0},
-	{ OFFS(rtimeout), "default timeout in us to wait when gathering out-of-order packets", GF_PROP_UINT, "10000", NULL, GF_FS_ARG_HINT_EXPERT},
+	{ OFFS(rtimeout), "default timeout in us to wait when gathering out-of-order packets", GF_PROP_UINT, "100000", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(fullseg), "only dispatch full segments in cache mode (always true for other modes)", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_ADVANCED},
 	{ OFFS(repair), "repair mode for corrupted files\n"
 		"- no: no repair is performed\n"
@@ -745,7 +764,7 @@ static const GF_FilterArgs ROUTEInArgs[] =
 		"- full: HTTP-based repair of all lost packets\n"
 		"- isobmf: repair (potentially partially) isobmf based on sample dependencies" 
 		, GF_PROP_UINT, "simple", "no|simple|strict|full|isobmf", GF_FS_ARG_HINT_EXPERT},
-	{ OFFS(repair_url), "repair url", GF_PROP_NAME, NULL, NULL, 0},
+	{ OFFS(repair_urls), "repair servers urls (If `repair` is not set, it defaults to full when `repair_urls` is used)", GF_PROP_STRING_LIST, NULL, NULL, 0},
 	{ OFFS(max_sess), "max number of concurrent HTTP repair sessions", GF_PROP_UINT, "1", NULL, 0},
 	{ OFFS(llmode), "enable low-latency access", GF_PROP_BOOL, "true", NULL, 0},
 	{ OFFS(dynsel), "dynamically enable and disable multicast groups based on their selection state", GF_PROP_BOOL, "true", NULL, 0},

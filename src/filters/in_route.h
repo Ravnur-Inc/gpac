@@ -68,6 +68,12 @@ typedef struct
 	s32 sample_id;
 } RouteRepairRange;
 
+typedef struct 
+{
+	char *url;
+	Bool accept_ranges, is_up, support_h2;
+	u32 nb_req_success, nb_bytes, latency;
+} RouteRepairServer;
 
 typedef struct
 {
@@ -75,16 +81,18 @@ typedef struct
 	RepairSegmentInfo *current_si;
 
 	RouteRepairRange *range;
+	RouteRepairServer *server;
 } RouteRepairSession;
 
 typedef struct
 {
 	//options
-	char *src, *ifce, *odir, *repair_url;
+	char *src, *ifce, *odir;
 	Bool gcache, kc, skipr, reorder, fullseg, cloop, llmode, dynsel;
 	u32 buffer, timeout, stats, max_segs, tsidbg, rtimeout, nbcached, repair;
 	u32 max_sess;
 	s32 tunein, stsi;
+	GF_PropStringList repair_urls;
 	
 	//internal
 	GF_Filter *filter;
@@ -112,6 +120,7 @@ typedef struct
 	GF_List *seg_repair_queue;
 	GF_List *seg_repair_reservoir;
 	GF_List *seg_range_reservoir;
+	GF_List *repair_servers;
 
 	const char *log_name;
 } ROUTEInCtx;

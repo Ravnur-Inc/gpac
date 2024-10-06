@@ -1580,7 +1580,12 @@ static void print_filter_arg(const GF_FilterArgs *a, u32 gen_doc)
 	}
 
 	if (gen_doc==1) {
-		gf_sys_format_help(helpout, help_flags, "<a id=\"%s\">", a->arg_name);
+		  gf_sys_format_help(helpout, help_flags, "<div markdown class=\"option\">\n");
+		if (a->flags & (GF_ARG_HINT_ADVANCED|GF_ARG_HINT_EXPERT)) {
+			gf_sys_format_help(helpout, help_flags, "<a id=\"%s\">", a->arg_name);
+		} else {
+			gf_sys_format_help(helpout, help_flags, "<a id=\"%s\" data-level=\"basic\">", a->arg_name);
+		}
 		gf_sys_format_help(helpout, help_flags | GF_PRINTARG_HIGHLIGHT_FIRST, "%s", a->arg_name);
 		gf_sys_format_help(helpout, help_flags, "</a> (%s", is_enum ? "enum" : gf_props_get_type_name(a->arg_type));
 	} else {
@@ -1614,6 +1619,9 @@ static void print_filter_arg(const GF_FilterArgs *a, u32 gen_doc)
 	} else {
 		gf_sys_format_help(helpout, help_flags | GF_PRINTARG_OPT_DESC, "): %s\n", a->arg_desc);
 	}
+	   if (gen_doc == 1) {
+        gf_sys_format_help(helpout, help_flags, "</div>\n");
+    }
 
 	//check syntax
 	if (gen_doc) {
@@ -1844,7 +1852,7 @@ static void print_filter(const GF_FilterRegister *reg, GF_SysArgMode argmode, GF
 	if (args && !jsmod_help) {
 		idx=0;
 		if (gen_doc==1) {
-			gf_sys_format_help(helpout, help_flags, "# Options  \n");
+			gf_sys_format_help(helpout, help_flags, "# Options  {.no-collapse}\n");
 		} else {
 			switch (argmode) {
 			case GF_ARGMODE_ALL:
@@ -2140,12 +2148,10 @@ Bool print_filters(int argc, char **argv, GF_SysArgMode argmode)
 		u32 k;
 		//all good to go, load filters
 		for (k=1; k<(u32) argc; k++) {
-			char *arg = argv[k];
-			char *sepe;
-			Bool found_freg = GF_FALSE;
-			char *optname = NULL;
-			if (arg[0]=='-') continue;
+			char *arg = argv[k], *sepe, *sepo, *optname=NULL;
+			Bool found_freg = GF_FALSE, found_filter = GF_FALSE;
 
+			if (arg[0]=='-') continue;
 			sepe = gf_file_basename(arg);
 			if (sepe) sepe = strchr(sepe, '.');
 			if (sepe) {
@@ -2157,7 +2163,8 @@ Bool print_filters(int argc, char **argv, GF_SysArgMode argmode)
 				}
 			}
 			fname = arg;
-			for (i=0; i<count; i++) {
+			sepo = strchr(arg, ':');
+			for (i=0; i<count && !found_filter; i++) {
 				const GF_FilterRegister *reg = gf_fs_get_filter_register(session, i);
 				//exact match
 				if (!strcmp(arg, reg->name) ) {
@@ -2165,14 +2172,12 @@ Bool print_filters(int argc, char **argv, GF_SysArgMode argmode)
 						print_filter_single_opt(reg, optname, NULL);
 					else
 						print_filter(reg, argmode, NULL, NULL);
-					found_freg = GF_TRUE;
+					found_filter = GF_TRUE;
 				}
 				//search for name:*, also accept *:*
 				else {
-					char *sepo = strchr(arg, ':');
-
 					if (!strcmp(arg, "*:*") || !strcmp(arg, "@:@")
-						|| (!sepo && (!strcmp(arg, "*") || !strcmp(arg, "@")) )
+						|| ((!strcmp(arg, "*") || !strcmp(arg, "@")))
 						|| (sepo && (!strcmp(sepo, ":*") || !strcmp(sepo, ":@"))  && !strncmp(reg->name, arg, 1+sepo - arg) )
 					) {
 						if (optname)
@@ -2184,11 +2189,11 @@ Bool print_filters(int argc, char **argv, GF_SysArgMode argmode)
 					}
 				}
 			}
-			if (found_freg) {
+			if (found_freg || found_filter) {
 				found = GF_TRUE;
 			} else /*if (!strchr(arg, ':')) */ {
 				GF_SysArgMode _argmode = argmode;
-				char *js_opt = strchr(arg, ':');
+				char *js_opt = sepo;
 				if (js_opt) {
 					js_opt[0] = 0;
 					gf_opts_set_key("temp", "gpac-js-help", js_opt+1);
