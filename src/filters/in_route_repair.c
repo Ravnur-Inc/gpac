@@ -32,7 +32,8 @@
 static void routein_repair_get_inverted_isobmf_deps(SampleRangeDependency *out_ranges, u32 nb_ranges) {
 	u32 i, j;
 
-	u32 indexes[nb_ranges];
+	if(nb_ranges == 0) return;
+	u32* indexes = gf_malloc(sizeof(u32) * nb_ranges);
 	memset(indexes, 0, nb_ranges* sizeof(int));
 
 	for(i=0; i < nb_ranges; i++) {
@@ -42,7 +43,9 @@ static void routein_repair_get_inverted_isobmf_deps(SampleRangeDependency *out_r
 	}
 	
 	for(i=0; i < nb_ranges; i++) {
-		out_ranges[i].rev_dep_ids = gf_malloc(sizeof(u32) * out_ranges[i].nb_rev_deps);
+		if(out_ranges[i].nb_rev_deps) {
+			out_ranges[i].rev_dep_ids = gf_malloc(sizeof(u32) * out_ranges[i].nb_rev_deps);
+		}
 	}
 
 	for(i=0; i < nb_ranges; i++) {
@@ -51,6 +54,7 @@ static void routein_repair_get_inverted_isobmf_deps(SampleRangeDependency *out_r
 			indexes[out_ranges[i].dep_ids[j]]++;
 		}
 	}
+	gf_free(indexes);
 }
 
 //simple dependency extraction from isobmff:
@@ -741,15 +745,18 @@ static void routein_repair_propagate_costs_rec(RepairSegmentInfo *rsi, s32 bytes
 }
 
 static void routein_repair_propagate_costs(RepairSegmentInfo *rsi, s32 bytes_cost, s32 reqs_cost, u32 index) {
-	Bool visited[rsi->nb_ranges];
+	if(rsi->nb_ranges == 0) return;
+	Bool * visited = gf_malloc(sizeof(Bool) * rsi->nb_ranges);
 	memset(visited, GF_FALSE, rsi->nb_ranges*sizeof(Bool));
 
 	routein_repair_propagate_costs_rec(rsi, bytes_cost, reqs_cost, index, visited);
+	gf_free(visited);
 }
 
 static void routein_repair_compute_entire_all_costs(RepairSegmentInfo *rsi, u32 threshold) {
 	u32 i, nb_bytes=0, nb_reqs=0;
-	Bool visited[rsi->nb_ranges];
+	if(rsi->nb_ranges == 0) return;
+	Bool *visited = gf_malloc(sizeof(Bool) * rsi->nb_ranges);
 
 	//use the principle of propagation to compute the real costs !
 	for(i=0; i < rsi->nb_ranges; i++) {
@@ -763,6 +770,8 @@ static void routein_repair_compute_entire_all_costs(RepairSegmentInfo *rsi, u32 
 			routein_repair_propagate_costs(rsi, nb_bytes, nb_reqs, i);
 		}
 	}
+
+	gf_free(visited);
 }
 
 static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, u32 index, u32 threshold) {
@@ -845,7 +854,8 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	s32 i;
 	u32 j;
 	s32 sort_i = 0;
-	int incoming[nb_ranges];
+	if(nb_ranges == 0) return;
+	u32 *incoming = gf_malloc(sizeof(u32) * nb_ranges);
 
 	for(i=0; i < nb_ranges; i++) {
 		incoming[i] = srd[i].nb_deps;
@@ -873,6 +883,8 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 			}
 		}
 	}
+
+	gf_free(incoming);
 }
 
 static void routein_delete_range_deps(SampleRangeDependency *srd, u32 nb_ranges)
@@ -1042,12 +1054,14 @@ static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi
 	}
 #endif
 
-	SampleRangeDependency* sorted_samples[rsi->nb_ranges];
+	SampleRangeDependency** sorted_samples = gf_malloc(sizeof(SampleRangeDependency*) * rsi->nb_ranges);
 
 	route_repair_topological_sort_samples(rsi->srd, rsi->nb_ranges, sorted_samples);
 	for(i=0; i<rsi->nb_ranges; i++) {
 		routein_repair_isobmf_frames(ctx, rsi, i, threshold);
 	}
+
+	gf_free(sorted_samples);
 }
 
 void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param, GF_ROUTEEventFileInfo *finfo)
@@ -1390,7 +1404,7 @@ void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_Err res_
 				if(index >= 0) {
 					rsi->srd[index].reqs_cost -= req;
 					rsi->srd[index].bytes_cost -= rsess->range->done;
-					routein_repair_propagate_costs(rsi, - (rsess->range->done), - req, index);
+					routein_repair_propagate_costs(rsi, - (s32)(rsess->range->done), - (s32)req, index);
 				}
 			}
 		} else {
