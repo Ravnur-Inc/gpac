@@ -32,7 +32,7 @@
 #include <gpac/mpegts.h>
 #include <gpac/thread.h>
 #include <gpac/internal/media_dev.h>
-#include <gpac/id3.h>
+#include <gpac/internal/id3.h>
 
 typedef struct {
 	char *fragment;
@@ -670,6 +670,11 @@ static void m2tdmx_merge_props(GF_FilterPid *pid, GF_M2TS_ES *stream, GF_FilterP
 				case M2TS_TEMI_INFO: {
 					GF_M2TS_Prop_TEMIInfo *t = (GF_M2TS_Prop_TEMIInfo*)p;
 					snprintf(szID, 100, "%s:%d", t->is_loc ? "temi_l" : "temi_t", t->timeline_id);
+
+					if (!(stream->flags & GF_M2TS_ES_TEMI_INFO)) {
+						stream->flags |= GF_M2TS_ES_TEMI_INFO;
+						gf_filter_pid_set_property(pid, GF_PROP_PID_HAS_TEMI, &PROP_BOOL(GF_TRUE) );
+					}
 					break;
 				}
 				case M2TS_SCTE35:
@@ -728,11 +733,6 @@ static void m2tdmx_merge_props(GF_FilterPid *pid, GF_M2TS_ES *stream, GF_FilterP
 
 		gf_list_del(stream->props);
 		stream->props = NULL;
-
-		if (!(stream->flags & GF_M2TS_ES_TEMI_INFO)) {
-			stream->flags |= GF_M2TS_ES_TEMI_INFO;
-			gf_filter_pid_set_property(pid, GF_PROP_PID_HAS_TEMI, &PROP_BOOL(GF_TRUE) );
-		}
 	}
 }
 
@@ -1609,10 +1609,13 @@ static void m2tsdmx_finalize(GF_Filter *filter)
 
 }
 
+#define M2TS_MAX_LOOPS	50
+
 static GF_Err m2tsdmx_process(GF_Filter *filter)
 {
 	GF_M2TSDmxCtx *ctx = gf_filter_get_udta(filter);
 	GF_FilterPacket *pck;
+	u32 nb_loops=M2TS_MAX_LOOPS;
 	Bool check_block = GF_TRUE;
 	const char *data;
 	u32 size;
@@ -1685,7 +1688,10 @@ restart:
 		gf_filter_pid_send_event(ctx->ipid, &fevt);
 		ctx->mux_tune_state = DMX_TUNE_DONE;
 		gf_m2ts_reset_parsers(ctx->ts);
-	} else {
+	}
+	//don't run more than max_loops as we could end up blocking until eos in direct dispatch mode
+	else if (nb_loops) {
+		nb_loops--;
 		goto restart;
 	}
 	return GF_OK;
@@ -1748,6 +1754,7 @@ GF_FilterRegister M2TSDmxRegister = {
 	.process = m2tsdmx_process,
 	.process_event = m2tsdmx_process_event,
 	.probe_data = m2tsdmx_probe_data,
+	.hint_class_type = GF_FS_CLASS_DEMULTIPLEXER
 };
 
 

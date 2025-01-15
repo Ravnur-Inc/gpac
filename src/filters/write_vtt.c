@@ -2,7 +2,7 @@
  *			GPAC - Multimedia Framework C SDK
  *
  *			Authors: Jean Le Feuvre
- *			Copyright (c) Telecom ParisTech 2000-2023
+ *			Copyright (c) Telecom ParisTech 2000-2024
  *					All rights reserved
  *
  *  This file is part of GPAC / WebVTT stream unframer filter
@@ -343,21 +343,22 @@ static const GF_FilterArgs WebVTTMxArgs[] =
 {
 	{ OFFS(exporter), "compatibility with old exporter, displays export results", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_ADVANCED},
 	{ OFFS(merge_cues), "merge VTT cues (undo ISOBMFF cue split)", GF_PROP_BOOL, "true", NULL, GF_FS_ARG_HINT_ADVANCED},
-	{ OFFS(noempty), "do not create an empty file if no VTT cues are present", GF_PROP_BOOL, "true", NULL, GF_FS_ARG_HINT_ADVANCED},
+	{ OFFS(noempty), "do not create an empty file if no VTT cues are present", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_ADVANCED},
 	{0}
 };
 
 
 GF_FilterRegister WebVTTMxRegister = {
 	.name = "ufvtt",
-	GF_FS_SET_DESCRIPTION("WebVTT unframer")
+	GF_FS_SET_DESCRIPTION("WebVTT rewriter")
 	GF_FS_SET_HELP("This filter converts a single ISOBMFF WebVTT stream to its unframed format.")
 	.private_size = sizeof(GF_WebVTTMxCtx),
 	.args = WebVTTMxArgs,
 	.finalize = vttmx_finalize,
 	SETCAPS(WebVTTMxCaps),
 	.configure_pid = vttmx_configure_pid,
-	.process = vttmx_process
+	.process = vttmx_process,
+	.hint_class_type = GF_FS_CLASS_FRAMING
 };
 
 

@@ -2,7 +2,7 @@
  *			GPAC - Multimedia Framework C SDK
  *
  *			Authors: Jean Le Feuvre
- *			Copyright (c) Telecom ParisTech 2018-2023
+ *			Copyright (c) Telecom ParisTech 2018-2024
  *					All rights reserved
  *
  *  This file is part of GPAC / GPAC stream format reader filter
@@ -112,7 +112,7 @@ typedef struct
 
 	Bool corrupted;
 	Bool file_pids;
-	Bool stop_pending;
+	Bool stop_pending, pid_pending;
 } GSF_DemuxCtx;
 
 
@@ -172,13 +172,15 @@ static Bool gsfdmx_process_event(GF_Filter *filter, const GF_FilterEvent *evt)
 
 	switch (evt->base.type) {
 	case GF_FEVT_PLAY:
+		ctx->stop_pending = GF_FALSE;
+		if (ctx->pid_pending)
+			ctx->pid_pending--;
 		if (ctx->nb_playing && (ctx->start_range == evt->play.start_range)) {
 			ctx->nb_playing++;
 			return GF_TRUE;
 		}
 		ctx->nb_playing++;
 		ctx->wait_for_play = GF_FALSE;
-		ctx->stop_pending = GF_FALSE;
 
 		if (! ctx->is_file) {
 			return GF_FALSE;
@@ -451,6 +453,7 @@ static GSF_Stream *gsfdmx_get_stream(GF_Filter *filter, GSF_DemuxCtx *ctx, u32 i
 		gst->idx = idx;
 		gf_list_add(ctx->streams, gst);
 		gst->opid = gf_filter_pid_new(filter);
+		ctx->pid_pending++;
 		return gst;
 	}
 
@@ -678,7 +681,8 @@ static GFINLINE GSF_Packet *gsfdmx_get_packet(GSF_DemuxCtx *ctx, GSF_Stream *gst
 				GF_LOG(GF_LOG_WARNING, GF_LOG_CONTAINER, ("[GSFDemux] Corrupted packet SN %u - discarding\n", frame_sn));
 				gf_list_rem(gst->packets, i-1);
 				gsfdmx_pck_reset(gpck);
-				gf_list_add(ctx->pck_res, gpck);
+				if (gf_list_find(ctx->pck_res, gpck) == -1)
+					gf_list_add(ctx->pck_res, gpck);
 				gpck = NULL;
 				break;
 			}
@@ -700,7 +704,8 @@ static GFINLINE GSF_Packet *gsfdmx_get_packet(GSF_DemuxCtx *ctx, GSF_Stream *gst
 		gpck->pck = gf_filter_pck_new_alloc(gst->opid, frame_size, &gpck->output);
 		if (!gpck->pck) {
 			gsfdmx_pck_reset(gpck);
-			gf_list_add(ctx->pck_res, gpck);
+			if (gf_list_find(ctx->pck_res, gpck) == -1)
+				gf_list_add(ctx->pck_res, gpck);
 			return NULL;
 		}
 		memset(gpck->output, (u8) ctx->pad, sizeof(char) * gpck->full_block_size);
@@ -814,7 +819,7 @@ GF_Err gsfdmx_read_data_pck(GSF_DemuxCtx *ctx, GSF_Stream *gst, GSF_Packet *gpck
 	u8 tsdiffmode = gf_bs_read_int(bs, 2);
 
 	u8 sap = gf_bs_read_int(bs, 3);
-	u8 crypt = gf_bs_read_int(bs, 2);
+	u8 pck_crypt = gf_bs_read_int(bs, 2);
 	u8 has_dep = gf_bs_read_int(bs, 1);
 	u8 has_4cc_props = gf_bs_read_int(bs, 1);
 	u8 has_ext = gf_bs_read_int(bs, 1);
@@ -977,7 +982,7 @@ GF_Err gsfdmx_read_data_pck(GSF_DemuxCtx *ctx, GSF_Stream *gst, GSF_Packet *gpck
 	if (has_dep) gf_filter_pck_set_dependency_flags(gpck->pck, dep_flags);
 	if (cktype) gf_filter_pck_set_clock_type(gpck->pck, cktype);
 	if (seek) gf_filter_pck_set_seek_flag(gpck->pck, seek);
-	if (crypt) gf_filter_pck_set_crypt_flags(gpck->pck, crypt);
+	if (pck_crypt) gf_filter_pck_set_crypt_flags(gpck->pck, pck_crypt);
 	if (sap) gf_filter_pck_set_sap(gpck->pck, sap);
 	if ((sap==GF_FILTER_SAP_4) || (sap==GF_FILTER_SAP_4_PROL))
 		gf_filter_pck_set_roll_info(gpck->pck, roll);
@@ -1014,7 +1019,9 @@ static void gsfdmx_stream_del(GSF_DemuxCtx *ctx, GSF_Stream *gst, Bool is_flush)
 			}
 		}
 		gsfdmx_pck_reset(gpck);
-		gf_list_add(ctx->pck_res, gpck);
+		if (gf_list_find(ctx->pck_res, gpck) == -1)
+			gf_list_add(ctx->pck_res, gpck);
+
 	}
 	if (is_flush && gst->opid)
 		gf_filter_pid_remove(gst->opid);
@@ -1111,7 +1118,8 @@ static GF_Err gsfdmx_process_packets(GF_Filter *filter, GSF_DemuxCtx *ctx, GSF_S
 
 		gf_list_rem(gst->packets, 0);
 		gsfdmx_pck_reset(gpck);
-		gf_list_add(ctx->pck_res, gpck);
+		if (gf_list_find(ctx->pck_res, gpck) == -1)
+			gf_list_add(ctx->pck_res, gpck);
 		if (e>GF_OK) e = GF_OK;
 		if (e) return e;
 	}
@@ -1265,7 +1273,8 @@ static GF_Err gsfdmx_demux(GF_Filter *filter, GSF_DemuxCtx *ctx, char *data, u32
 						gf_list_del_item(gst->packets, gpck);
 						if (gpck->pck) gf_filter_pck_discard(gpck->pck);
 						gsfdmx_pck_reset(gpck);
-						gf_list_add(ctx->pck_res, gpck);
+						if (gf_list_find(ctx->pck_res, gpck) == -1)
+							gf_list_add(ctx->pck_res, gpck);
 					}
 				}
 			}
@@ -1285,7 +1294,7 @@ static GF_Err gsfdmx_demux(GF_Filter *filter, GSF_DemuxCtx *ctx, char *data, u32
 		memmove(ctx->buffer, ctx->buffer+last_pck_end, sizeof(char) * (ctx->buf_size-last_pck_end));
 		ctx->buf_size -= last_pck_end;
 	}
-	if (ctx->stop_pending) {
+	if (ctx->stop_pending && !ctx->pid_pending) {
 		GF_FilterEvent evt;
 		ctx->stop_pending = GF_FALSE;
 		GF_FEVT_INIT(evt, GF_FEVT_STOP, ctx->ipid);
@@ -1478,6 +1487,7 @@ GF_FilterRegister GSFDemuxRegister = {
 	.process = gsfdmx_process,
 	.process_event = gsfdmx_process_event,
 	.probe_data = gsfdmx_probe_data,
+	.hint_class_type = GF_FS_CLASS_DEMULTIPLEXER
 };
 
 

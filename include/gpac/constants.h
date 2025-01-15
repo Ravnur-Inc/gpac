@@ -328,6 +328,13 @@ u32 gf_pixel_is_wide_depth(GF_PixelFormat pixfmt);
 */
 u32 gf_pixel_get_nb_comp(GF_PixelFormat pixfmt);
 
+/*! Gets the downsampling factor for this format
+\param pixfmt  pixel format code
+\param downsample_w set to horizontal downsampling, 1 if none
+\param downsample_h set to vertical downsampling, 1 if none
+*/
+void gf_pixel_get_downsampling(GF_PixelFormat pixfmt, u32 *downsample_w, u32 *downsample_h);
+
 /*! Checks if  pixel format is transparent
 \param pixfmt  pixel format code
 \return GF_TRUE if alpha channel is present, GF_FALSE otherwise
@@ -1726,6 +1733,20 @@ enum
 	/*! Mesh projection (not supported yet)*/
 	GF_PROJ360_MESH
 };
+
+/*! Low latency HTTP adaptive streaming mode, set by dasher filter and used by other filter */
+enum
+{
+	/*! no low-latency profile*/
+	GF_LLHAS_NONE = 0,
+	/*! LL-HLS using byte ranges */
+	GF_LLHAS_BYTERANGES = 1,
+	/*! LL-HLS using seperate parts  */
+	GF_LLHAS_PARTS = 2,
+	/*! DASH SSR mode (only sub-parts are generated  */
+	GF_LLHAS_SUBSEG = 3
+};
+
 
 /*! user data used by GPAC to store SRD info*/
 #define GF_ISOM_UDTA_GPAC_SRD	GF_4CC('G','S','R','D')

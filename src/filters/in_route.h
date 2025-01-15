@@ -34,11 +34,24 @@
 
 #ifndef GPAC_DISABLE_ROUTE
 
+enum
+{
+	TSIO_FILE_PROGRESS = 1,
+	TSIO_REPAIR_SCHEDULED = (1<<1)
+};
+
 typedef struct
 {
 	u32 sid;
 	u32 tsi;
 	GF_FilterPid *opid;
+	//TOI of file being received - moved back to 0 once file is done being dispatched
+	u32 current_toi;
+	u32 bytes_sent;
+	char *dash_rep_id;
+	GF_List *pending_repairs;
+	u32 flags_progress;
+	Bool delete_first;
 } TSI_Output;
 
 typedef struct
@@ -64,17 +77,26 @@ typedef struct
 	u32 br_end;
 	u32 done;
 	u32 priority;
-	//id of simple in the list of simples; -1 if not used
+	//id of sample in the list of saymples; -1 if not used
 	s32 sample_id;
 } RouteRepairRange;
+
+typedef enum
+{
+	RANGE_SUPPORT_NO = 0,
+	RANGE_SUPPORT_PROBE,
+	RANGE_SUPPORT_YES,
+} RouteServerRangeSupport;
 
 typedef struct 
 {
 	char *url;
-	Bool accept_ranges, is_up, support_h2;
+	RouteServerRangeSupport accept_ranges;
+	Bool is_up, support_h2;
 	u32 nb_req_success, nb_bytes, latency;
 } RouteRepairServer;
 
+#define REPAIR_BUF_SIZE	50000
 typedef struct
 {
 	GF_DownloadSession *dld;
@@ -82,6 +104,8 @@ typedef struct
 
 	RouteRepairRange *range;
 	RouteRepairServer *server;
+	u32 initial_retry, retry_in;
+	char http_buf[REPAIR_BUF_SIZE];
 } RouteRepairSession;
 
 typedef struct
@@ -90,7 +114,7 @@ typedef struct
 	char *src, *ifce, *odir;
 	Bool gcache, kc, skipr, reorder, fullseg, cloop, llmode, dynsel;
 	u32 buffer, timeout, stats, max_segs, tsidbg, rtimeout, nbcached, repair;
-	u32 max_sess;
+	u32 max_sess, range_merge, minrecv;
 	s32 tunein, stsi;
 	GF_PropStringList repair_urls;
 	
@@ -122,6 +146,7 @@ typedef struct
 	GF_List *seg_range_reservoir;
 	GF_List *repair_servers;
 
+	Bool has_data;
 	const char *log_name;
 } ROUTEInCtx;
 
@@ -166,6 +191,11 @@ struct _route_repair_seg_info
 	u32 pending;
 	GF_List *ranges;
 	u32 nb_errors;
+	TSI_Output *tsio;
+	//set to true if repair session is over but kept in list for TSIO reordering purposes
+	Bool done;
+	//if true this is a local repair, otherwise an http base one
+	Bool local_repair;
 
 	u32 state; //doing top-level boxes (except mdat; header only) or repairing level 0, level 1, 
 	SampleRangeDependency* srd; // valid once all top headers moof are ok (array of frames)
@@ -182,6 +212,8 @@ void routein_on_event_file(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param
 
 //return GF_EOS if nothing active, GF_OK otherwise
 GF_Err routein_do_repair(ROUTEInCtx *ctx);
+
+TSI_Output *routein_get_tsio(ROUTEInCtx *ctx, u32 service_id, GF_ROUTEEventFileInfo *finfo);
 
 #endif /* GPAC_DISABLE_ROUTE */
 

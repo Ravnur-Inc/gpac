@@ -546,10 +546,14 @@ void isor_reader_get_sample(ISOMChannel *ch)
 					ch->sample_num--;
 			} else {
 				if (ch->to_init && ch->sample_num) {
-					GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[IsoMedia] Failed to fetch initial sample %d for track %d\n", ch->sample_num, ch->track));
-					ch->last_state = GF_ISOM_INVALID_FILE;
+					if (!ch->owner->was_aborted && !gf_filter_end_of_session(ch->owner->filter)) {
+						GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[IsoMedia] Failed to fetch initial sample %d for track %d\n", ch->sample_num, ch->track));
+						ch->last_state = GF_ISOM_INVALID_FILE;
+					} else {
+						ch->last_state = GF_EOS;
+					}
 				} else {
-					if (!ch->eos_sent) {
+					if (!ch->eos_sent && !ch->owner->was_aborted && !gf_filter_end_of_session(ch->owner->filter)) {
 						GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[IsoMedia] File truncated, aborting read for track %d after %d / %d samples\n", ch->track, ch->sample_num, sample_count));
 					}
 					ch->last_state = GF_EOS;
@@ -968,14 +972,14 @@ void isor_sai_bytes_removed(ISOMChannel *ch, u32 pos, u32 removed)
 		if (sai_size<6)
 			return;
 		u32 clear = ((u32) sai[0]) << 8 | sai[1];
-		u32 crypt = GF_4CC(sai[2], sai[3], sai[4], sai[5]);
+		u32 nb_crypt = GF_4CC(sai[2], sai[3], sai[4], sai[5]);
 		if (cur_pos + clear > pos) {
 			clear -= removed;
 			sai[0] = (clear>>8) & 0xFF;
 			sai[1] = (clear) & 0xFF;
 			return;
 		}
-		cur_pos += clear + crypt;
+		cur_pos += clear + nb_crypt;
 		sai += 6;
 		sai_size-=6;
 	}
@@ -1144,7 +1148,7 @@ void isor_set_sample_groups_and_aux_data(ISOMReader *read, ISOMChannel *ch, GF_F
 
 		switch (grp_type) {
 		case GF_4CC('P','S','S','H'):
-			gf_filter_pck_set_property(pck, GF_PROP_PID_CENC_PSSH, &PROP_DATA_NO_COPY((u8*)grp_data, grp_size) );
+			gf_filter_pck_set_property(pck, GF_PROP_PCK_CENC_PSSH, &PROP_DATA_NO_COPY((u8*)grp_data, grp_size) );
 			break;
 		default:
 			gf_filter_pck_set_property_dyn(pck, szPName, &PROP_DATA_NO_COPY(grp_data, grp_size) );

@@ -858,7 +858,7 @@ static GF_Err gf_netcap_record(GF_NetcapFilter *nf)
 	if (!gf_opts_get_bool("core", "no-fd")) {
 		//make sure output dir exists
 		gf_fopen(nf->dst, "mkdir");
-		nf->fd = open(nf->dst, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH );
+		nf->fd = gf_fd_open(nf->dst, O_RDWR | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH );
 		if (nf->fd>=0) nf->cap_bs = gf_bs_from_fd(nf->fd, GF_BITSTREAM_WRITE);
 	} else
 #endif
@@ -1685,7 +1685,7 @@ static GF_Err gf_netcap_playback(GF_NetcapFilter *nf)
 {
 #ifdef GPAC_HAS_FD
 	if (!gf_opts_get_bool("core", "no-fd")) {
-		nf->fd = open(nf->src, O_RDONLY);
+		nf->fd = gf_fd_open(nf->src, O_RDONLY | O_BINARY , S_IRUSR | S_IWUSR);
 		if (nf->fd>=0) nf->cap_bs = gf_bs_from_fd(nf->fd, GF_BITSTREAM_READ);
 	} else
 #endif
@@ -2423,6 +2423,7 @@ conn_ok:
 
 		switch (res) {
 		case EAGAIN:
+		case EINTR:
 #if defined(WIN32) || defined(_WIN32_WCE)
 		case WSAEWOULDBLOCK:
 #endif
@@ -2575,16 +2576,24 @@ GF_Err gf_sk_bind(GF_Socket *sock, const char *ifce_ip_or_name, u16 port, const 
 		if (sock->flags & GF_SOCK_NON_BLOCKING)
 			gf_sk_set_block_mode(sock, GF_TRUE);
 
-		if (peer_name && peer_port)
+		if (peer_name && peer_port) {
 			sock->flags |= GF_SOCK_HAS_PEER;
-
-		ret = bind(sock->socket, aip->ai_addr, (int) aip->ai_addrlen);
-		if (ret == SOCKET_ERROR) {
-			GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] bind failed: %s\n", gf_errno_str(LASTSOCKERROR) ));
-			sock_close(sock);
-			continue;
 		}
 
+#ifdef GPAC_CONFIG_LINUX
+		//weird bug in linux  (at least on our VMs) when reusing UDP port and binding,
+		//poll/select for read fails in the other program reusing the port
+		if (peer_name && !strcmp(peer_name, "127.0.0.1") && (options & GF_SOCK_IS_SENDER)) {
+		} else
+#endif
+		{
+			ret = bind(sock->socket, aip->ai_addr, (int) aip->ai_addrlen);
+			if (ret == SOCKET_ERROR) {
+				GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] bind failed: %s\n", gf_errno_str(LASTSOCKERROR) ));
+				sock_close(sock);
+				continue;
+			}
+		}
 		if (aip->ai_family==PF_INET6) sock->flags |= GF_SOCK_IS_IPV6;
 		else sock->flags &= ~GF_SOCK_IS_IPV6;
 
@@ -2649,10 +2658,17 @@ GF_Err gf_sk_bind(GF_Socket *sock, const char *ifce_ip_or_name, u16 port, const 
 	}
 
 	/*bind the socket*/
-	ret = bind(sock->socket, (struct sockaddr *) &LocalAdd, (int) addrlen);
-	if (ret == SOCKET_ERROR) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_NETWORK, ("[socket] cannot bind socket: %s\n", gf_errno_str(LASTSOCKERROR) ));
-		ret = GF_IP_CONNECTION_FAILURE;
+#ifdef GPAC_CONFIG_LINUX
+	//see above comment
+	if (peer_name && !strcmp(peer_name, "127.0.0.1") && (options & GF_SOCK_IS_SENDER) ) {
+	} else
+#endif
+	{
+		ret = bind(sock->socket, (struct sockaddr *) &LocalAdd, (int) addrlen);
+		if (ret == SOCKET_ERROR) {
+			GF_LOG(GF_LOG_ERROR, GF_LOG_NETWORK, ("[socket] cannot bind socket: %s\n", gf_errno_str(LASTSOCKERROR) ));
+			ret = GF_IP_CONNECTION_FAILURE;
+		}
 	}
 
 	if (peer_name && peer_port) {
@@ -2696,6 +2712,7 @@ static GF_Err poll_select(GF_Socket *sock, GF_SockSelectMode mode, u32 usec, Boo
 		if (ready<0) {
 			switch (LASTSOCKERROR) {
 			case EAGAIN:
+			case EINTR:
 				return GF_IP_NETWORK_EMPTY;
 			default:
 				GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] cannot poll: %s\n", gf_errno_str(LASTSOCKERROR) ));
@@ -2734,6 +2751,7 @@ static GF_Err poll_select(GF_Socket *sock, GF_SockSelectMode mode, u32 usec, Boo
 	if (ready == SOCKET_ERROR) {
 		switch (LASTSOCKERROR) {
 		case EAGAIN:
+		case EINTR:
 			return GF_IP_NETWORK_EMPTY;
 		default:
 			GF_LOG(GF_LOG_INFO, GF_LOG_NETWORK, ("[socket] select failure: %s\n", gf_errno_str(LASTSOCKERROR)));
@@ -2802,6 +2820,7 @@ GF_Err gf_sk_send_ex(GF_Socket *sock, const u8 *buffer, u32 length, u32 *written
 		if (res == SOCKET_ERROR) {
 			switch (res = LASTSOCKERROR) {
 			case EAGAIN:
+			case EINTR:
 				return GF_IP_NETWORK_EMPTY;
 #ifndef __SYMBIAN32__
 			case ENOTCONN:
@@ -3756,6 +3775,7 @@ GF_Err gf_sk_group_select(GF_SockGroup *sg, u32 usec_wait, GF_SockSelectMode mod
 		if (res<0) {
 			switch (LASTSOCKERROR) {
 			case EAGAIN:
+			case EINTR:
 				return GF_IP_NETWORK_EMPTY;
 			default:
 				GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] cannot poll: %s\n", gf_errno_str(LASTSOCKERROR) ));
@@ -3807,10 +3827,7 @@ GF_Err gf_sk_group_select(GF_SockGroup *sg, u32 usec_wait, GF_SockSelectMode mod
 			GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] cannot select, BAD descriptor\n"));
 			return GF_IP_CONNECTION_CLOSED;
 		case EAGAIN:
-			return GF_IP_NETWORK_EMPTY;
 		case EINTR:
-			/* Interrupted system call*/
-			GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] network is lost\n"));
 			return GF_IP_NETWORK_EMPTY;
 		default:
 			GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] cannot select: %s\n", gf_errno_str(LASTSOCKERROR) ));
@@ -3938,6 +3955,7 @@ GF_Err gf_sk_receive_internal(GF_Socket *sock, char *buffer, u32 length, u32 *By
 		res = LASTSOCKERROR;
 		switch (res) {
 		case EAGAIN:
+		case EINTR:
 			return GF_IP_NETWORK_EMPTY;
 
 #if defined(WIN32) || defined(_WIN32_WCE)
@@ -4041,6 +4059,7 @@ GF_Err gf_sk_accept(GF_Socket *sock, GF_Socket **newConnection)
 	if (SOCKET_INVALID(sk)) {
 		switch (LASTSOCKERROR) {
 		case EAGAIN:
+		case EINTR:
 			return GF_IP_NETWORK_EMPTY;
 		default:
 			GF_LOG(GF_LOG_ERROR, GF_LOG_NETWORK, ("[socket] accept error: %s\n", gf_errno_str(LASTSOCKERROR)));
@@ -4126,7 +4145,7 @@ GF_Err gf_sk_server_mode(GF_Socket *sock, Bool serverOn)
 }
 
 GF_EXPORT
-GF_Err gf_sk_get_remote_address(GF_Socket *sock, char *buf)
+GF_Err gf_sk_get_remote_address_port(GF_Socket *sock, char *buf, u32 *port)
 {
 #ifdef GPAC_HAS_IPV6
 	char clienthost[NI_MAXHOST];
@@ -4135,16 +4154,26 @@ GF_Err gf_sk_get_remote_address(GF_Socket *sock, char *buf)
 	if (!sock || SOCKET_INVALID(sock->socket)) return GF_BAD_PARAM;
 	my_inet_ntop(AF_INET, addrptr, clienthost, NI_MAXHOST);
 	strcpy(buf, clienthost);
+	if (port) {
+		*port = ntohs(addrptr->sin6_port);
+	}
 	if (getnameinfo((struct sockaddr *)addrptr, sock->dest_addr_len, clienthost, NI_MAXHOST, servname, NI_MAXHOST, NI_NUMERICHOST) == 0) {
 		strcpy(buf, clienthost);
 	}
 #else
 	if (!sock || SOCKET_INVALID(sock->socket)) return GF_BAD_PARAM;
 	strcpy(buf, inet_ntoa(sock->dest_addr.sin_addr));
+	if (port) {
+		*port = ntohs(sock->dest_addr.sin_port);
+	}
 #endif
 	return GF_OK;
 }
-
+GF_EXPORT
+GF_Err gf_sk_get_remote_address(GF_Socket *sock, char *buf)
+{
+	return gf_sk_get_remote_address_port(sock, buf, NULL);
+}
 
 
 #if 0 //unused
@@ -4209,6 +4238,7 @@ GF_Err gf_sk_send_to(GF_Socket *sock, const char *buffer, u32 length, char *remo
 		if (res == SOCKET_ERROR) {
 			switch (LASTSOCKERROR) {
 			case EAGAIN:
+			case EINTR:
 				return GF_IP_NETWORK_EMPTY;
 			default:
 				GF_LOG(GF_LOG_ERROR, GF_LOG_NETWORK, ("[socket] sendto error: %s\n", gf_errno_str(LASTSOCKERROR)));
@@ -4244,6 +4274,7 @@ GF_Err gf_sk_probe(GF_Socket *sock)
 	switch (res) {
 	case 0:
 	case EAGAIN:
+	case EINTR:
 		return GF_IP_NETWORK_EMPTY;
 	default:
 		GF_LOG(GF_LOG_WARNING, GF_LOG_NETWORK, ("[socket] probe error: %s\n", gf_errno_str(res)));

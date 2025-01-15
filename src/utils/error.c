@@ -25,6 +25,7 @@
 
 #include <gpac/tools.h>
 #include <gpac/thread.h>
+#include <gpac/utf.h>
 
 
 //ugly patch, we have a concurrence issue with gf_4cc_to_str, for now fixed by rolling buffers
@@ -46,6 +47,25 @@ const char *gf_4cc_to_str_safe(u32 type, char szType[GF_4CC_MSIZE])
 		if ( ch >= 0x20 && ch <= 0x7E ) {
 			*name = ch;
 			name++;
+		} else if (!gf_sys_is_test_mode() ) {
+			char szTmp[2];
+			szTmp[0] = 0xc2;
+			szTmp[1] = ch;
+			if (gf_utf8_is_legal(szTmp, 2)) {
+				name[0] = 0xc2;
+				name[1] = ch;
+				name+=2;
+			} else {
+				szTmp[0] = 0xc3;
+				if (gf_utf8_is_legal(szTmp, 2)) {
+					name[0] = 0xc2;
+					name[1] = ch;
+					name+=2;
+				} else {
+					sprintf(name, "%02X", ch);
+					name += 2;
+				}
+			}
 		} else {
 			sprintf(name, "%02X", ch);
 			name += 2;
@@ -183,6 +203,7 @@ static struct log_tool_info {
 	u32 type;
 	const char *name;
 	GF_LOG_Level level;
+	Bool strict;
 	const char *alt;
 } global_log_tools [] =
 {
@@ -250,6 +271,7 @@ GF_Err gf_log_modify_tools_levels(const char *val_)
 	while (val && strlen(val)) {
 		void default_log_callback(void *cbck, GF_LOG_Level level, GF_LOG_Tool tool, const char *fmt, va_list vlist);
 		u32 level;
+		Bool use_strict=GF_FALSE;
 		const char *next_val = NULL;
 		const char *tools = NULL;
 		/*look for log level*/
@@ -285,7 +307,8 @@ GF_Err gf_log_modify_tools_levels(const char *val_)
 				return GF_BAD_PARAM;
 			}
 		}
-
+		char *strict_sep = strstr(sep_level+1, "+strict");
+		if (strict_sep) strict_sep[0] = 0;
 		if (!strnicmp(sep_level+1, "error", 5)) {
 			level = GF_LOG_ERROR;
 			next_val = sep_level+1 + 5;
@@ -306,9 +329,19 @@ GF_Err gf_log_modify_tools_levels(const char *val_)
 			level = GF_LOG_QUIET;
 			next_val = sep_level+1 + 5;
 		}
+		else if (!strnicmp(sep_level+1, "strict", 6)) {
+			level = GF_LOG_DEBUG+1;
+			next_val = sep_level+1 + 6;
+		}
 		else {
+			if (strict_sep) strict_sep[0] = '+';
 			GF_LOG(GF_LOG_ERROR, GF_LOG_CORE, ("Unknown log level specified: %s\n", sep_level+1));
 			return GF_BAD_PARAM;
+		}
+		if (strict_sep) {
+			strict_sep[0] = '+';
+			use_strict = GF_TRUE;
+			next_val += 7;
 		}
 
 		sep_level[0] = 0;
@@ -337,7 +370,9 @@ GF_Err gf_log_modify_tools_levels(const char *val_)
 					if (!strcmp(global_log_tools[i].name, tools)
 						|| (global_log_tools[i].alt && !strcmp(global_log_tools[i].alt, tools))
 					) {
-						global_log_tools[i].level = level;
+						if (level<=GF_LOG_DEBUG)
+							global_log_tools[i].level = level;
+						global_log_tools[i].strict = use_strict;
 						found = GF_TRUE;
 						break;
 					}
@@ -716,7 +751,11 @@ Bool gf_log_tool_level_on(GF_LOG_Tool log_tool, GF_LOG_Level log_level)
 	}
 	if (log_tool==GF_LOG_TOOL_MAX) return GF_TRUE;
 	if (log_tool>GF_LOG_TOOL_MAX) return GF_FALSE;
-	if (global_log_tools[log_tool].level >= log_level) return GF_TRUE;
+	if (global_log_tools[log_tool].level >= log_level) {
+		if (global_log_tools[log_tool].strict && (log_level==GF_LOG_ERROR) && (log_tool != GF_LOG_MEMORY))
+			gf_log_set_strict_error(GF_TRUE);
+		return GF_TRUE;
+	}
 	return GF_FALSE;
 }
 

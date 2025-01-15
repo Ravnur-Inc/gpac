@@ -2,7 +2,7 @@
  *			GPAC - Multimedia Framework C SDK
  *
  *			Authors: Jean Le Feuvre
- *			Copyright (c) Telecom ParisTech 2018-2023
+ *			Copyright (c) Telecom ParisTech 2018-2024
  *					All rights reserved
  *
  *  This file is part of GPAC / ffmpeg video rescaler filter
@@ -631,35 +631,8 @@ static GF_Err ffsws_configure_pid(GF_Filter *filter, GF_FilterPid *pid, Bool is_
 
 	ctx->passthrough = GF_FALSE;
 
-	Bool downsample_w=GF_FALSE, downsample_h=GF_FALSE;
-	switch (ofmt) {
-	case GF_PIXEL_YUV:
-	case GF_PIXEL_YVU:
-	case GF_PIXEL_YUV_10:
-	case GF_PIXEL_NV12:
-	case GF_PIXEL_NV21:
-	case GF_PIXEL_NV12_10:
-	case GF_PIXEL_NV21_10:
-	case GF_PIXEL_YUVA:
-	case GF_PIXEL_YUVD:
-		downsample_h=GF_TRUE;
-		//fallthrough
-	case GF_PIXEL_YUV422:
-	case GF_PIXEL_YUV422_10:
-	case GF_PIXEL_UYVY:
-	case GF_PIXEL_VYUY:
-	case GF_PIXEL_YUYV:
-	case GF_PIXEL_YVYU:
-	case GF_PIXEL_UYVY_10:
-	case GF_PIXEL_VYUY_10:
-	case GF_PIXEL_YUYV_10:
-	case GF_PIXEL_YVYU_10:
-		downsample_w = GF_TRUE;
-		break;
-
-	default:
-		break;
-	}
+	u32 downsample_w, downsample_h;
+	gf_pixel_get_downsampling(ofmt, &downsample_w, &downsample_h);
 
 	u32 scale_w = w;
 	if ((ctx->keepar == FFSWS_KEEPAR_FULL) && (sar.num > (s32) sar.den)) {
@@ -1087,6 +1060,7 @@ GF_FilterRegister FFSWSRegister = {
 	.finalize = ffsws_finalize,
 	.process = ffsws_process,
 	.reconfigure_output = ffsws_reconfigure_output,
+	.hint_class_type = GF_FS_CLASS_AV
 };
 
 #else

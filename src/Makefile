@@ -220,9 +220,7 @@ LIBGPAC_FILTERS_FFMPEG=filters/ff_common.o filters/ff_avf.o filters/ff_dec.o fil
 LIBGPAC_FILTERS_LIBCAPTION=filters/dec_cc.o
 LIBGPAC_FILTERS_MPEGHDEC=filters/dec_mpeghdec.o
 
-ifeq ($(CONFIG_EMSCRIPTEN),yes)
 LIBGPAC_FILTERS+=filters/dec_webcodec.o filters/enc_webcodec.o filters/avin_web.o
-endif
 
 ifeq ($(STATIC_MODULES),yes)
 LIBGPAC_FILTERS_OHEVC=filters/dec_openhevc.o
@@ -408,7 +406,7 @@ endif
 
 unit_tests:
 ifeq ($(UNIT_TESTS),yes)
-	$(CC) $(CFLAGS) -Wno-unused-variable -I.. -I$(SRC_PATH)/include -DGPAC_HAVE_CONFIG_H  \
+	$(CC) $(CFLAGS) $(caption_cflags) -Wno-unused-variable -I.. -I$(SRC_PATH)/include -DGPAC_HAVE_CONFIG_H  \
 		-o ../bin/gcc/unittests \
 		../bin/gcc/unittests.c \
 		$(shell find $(SRC_PATH) -path "*/unittests/*.c" | grep -v bin | sort) \

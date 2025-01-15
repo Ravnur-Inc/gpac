@@ -2,7 +2,7 @@
  *			GPAC - Multimedia Framework C SDK
  *
  *			Authors: Jean Le Feuvre
- *			Copyright (c) Telecom ParisTech 2018-2023
+ *			Copyright (c) Telecom ParisTech 2018-2024
  *					All rights reserved
  *
  *  This file is part of GPAC / file concatenator filter
@@ -306,7 +306,7 @@ static void filelist_start_ipid(GF_FileListCtx *ctx, FileListPid *iopid, u32 pre
 	} else {
 		iopid->cts_o = 0;
 	}
-	
+
 	if (is_reassign && prev_timescale) {
 		u64 dts, cts;
 
@@ -1558,8 +1558,8 @@ static Bool filelist_check_splice(GF_FileListCtx *ctx)
 	GF_FilterSAPType sap;
 	GF_FilterPid *ipid;
 	Bool is_raw_audio;
-	gf_assert(ctx->splice_ctrl);
-	gf_assert(ctx->splice_state);
+	gf_fatal_assert(ctx->splice_ctrl);
+	gf_fatal_assert(ctx->splice_state);
 
 	ipid = ctx->splice_ctrl->splice_ipid ? ctx->splice_ctrl->splice_ipid : ctx->splice_ctrl->ipid;
 	is_raw_audio = ctx->splice_ctrl->splice_ipid ? ctx->splice_ctrl->splice_ra_info.is_raw : ctx->splice_ctrl->ra_info.is_raw;
@@ -1942,7 +1942,7 @@ void filelist_send_packet(GF_FileListCtx *ctx, FileListPid *iopid, GF_FilterPack
 	}
 
 	if (ctx->sigfrag_mode && ctx->abs_url) {
-		gf_filter_pck_set_property(dst_pck, GF_PROP_PID_URL, &PROP_STRING(ctx->abs_url));
+		gf_filter_pck_set_property(dst_pck, GF_PROP_PCK_SEG_URL, &PROP_STRING(ctx->abs_url));
 		if (ctx->rel_url) {
 			gf_filter_pck_set_property(dst_pck, GF_PROP_PCK_FILENAME, &PROP_STRING(ctx->rel_url));
 		}
@@ -3205,7 +3205,8 @@ GF_FilterRegister FileListRegister = {
 	.configure_pid = filelist_configure_pid,
 	.process = filelist_process,
 	.process_event = filelist_process_event,
-	.probe_data = filelist_probe_data
+	.probe_data = filelist_probe_data,
+	.hint_class_type = GF_FS_CLASS_STREAM
 };
 
 const GF_FilterRegister *flist_register(GF_FilterSession *session)
@@ -3218,4 +3219,3 @@ const GF_FilterRegister *flist_register(GF_FilterSession *session)
 	return NULL;
 }
 #endif // GPAC_DISABLE_FLIST
-

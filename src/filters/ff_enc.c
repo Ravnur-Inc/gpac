@@ -2,7 +2,7 @@
  *			GPAC - Multimedia Framework C SDK
  *
  *			Authors: Jean Le Feuvre
- *			Copyright (c) Telecom ParisTech 2018-2023
+ *			Copyright (c) Telecom ParisTech 2018-2024
  *					All rights reserved
  *
  *  This file is part of GPAC / ffmpeg encode filter
@@ -47,6 +47,7 @@ typedef struct _gf_ffenc_ctx
 	char *c;
 	Bool ls, rld;
 	u32 pfmt;
+	s32 round;
 	GF_Fraction fintra;
 	Bool rc;
 
@@ -67,7 +68,7 @@ typedef struct _gf_ffenc_ctx
 	u32 nb_frames_out, nb_frames_in;
 	u64 time_spent;
 
-	Bool low_delay;
+	u32 low_delay_mode;
 
 	GF_Err (*process)(GF_Filter *filter, struct _gf_ffenc_ctx *ctx);
 	//gpac one
@@ -1675,6 +1676,26 @@ static GF_Err ffenc_configure_pid_ex(GF_Filter *filter, GF_FilterPid *pid, Bool 
 			ctx->infmt_negotiate = GF_TRUE;
 		} else {
 			ctx->infmt_negotiate = GF_FALSE;
+			u32 downsample_w=0, downsample_h=0;
+			if ((ctx->round==1) || (ctx->round==-1))
+				gf_pixel_get_downsampling(ffmpeg_pixfmt_to_gpac(ctx->pixel_fmt, GF_FALSE), &downsample_w, &downsample_h);
+			else if (ctx->round>0)
+				downsample_h = downsample_w = ctx->round;
+			else if (ctx->round<0)
+				downsample_h = downsample_w = (u32) -ctx->round;
+
+			if (downsample_w && (ctx->width % downsample_w)) {
+				u32 w = (ctx->width/downsample_w) * downsample_w;
+				if (ctx->round>0) w+=downsample_w;
+				gf_filter_pid_negotiate_property(ctx->in_pid, GF_PROP_PID_WIDTH, &PROP_UINT(w) );
+				ctx->infmt_negotiate = GF_TRUE;
+			}
+			if (downsample_h && (ctx->height % downsample_h)) {
+				u32 h = (ctx->height/downsample_h) * downsample_h;
+				if (ctx->round>0) h+=downsample_h;
+				gf_filter_pid_negotiate_property(ctx->in_pid, GF_PROP_PID_HEIGHT, &PROP_UINT(h) );
+				ctx->infmt_negotiate = GF_TRUE;
+			}
 		}
 	} else {
 		u32 change_input_sr = 0;
@@ -1856,12 +1877,16 @@ static GF_Err ffenc_configure_pid_ex(GF_Filter *filter, GF_FilterPid *pid, Bool 
 			}
 		}
 
-		if (ctx->low_delay) {
+		if (ctx->low_delay_mode==1) {
 			av_dict_set(&ctx->options, "profile", "baseline", 0);
 			av_dict_set(&ctx->options, "preset", "ultrafast", 0);
 			av_dict_set(&ctx->options, "tune", "zerolatency", 0);
 			if (ctx->codecid==GF_CODECID_AVC) {
-				av_dict_set(&ctx->options, "x264opts", "no-mbtree:sliced-threads:sync-lookahead=0", 0);
+				if (av_opt_find((void*)&codec->priv_class, "x264-params", NULL, 0, 0) != NULL) {
+					av_dict_set(&ctx->options, "x264-params", "no-mbtree=1:sliced-threads=1:sync-lookahead=0", 0);
+				} else {
+					av_dict_set(&ctx->options, "x264opts", "no-mbtree:sliced-threads:sync-lookahead=0", 0);
+				}
 			}
 #if LIBAVCODEC_VERSION_MAJOR >= 58
 			ctx->encoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
@@ -2112,15 +2137,24 @@ static GF_Err ffenc_update_arg(GF_Filter *filter, const char *arg_name, const GF
 
 	if (!strcmp(arg_name, "global_header"))	return GF_OK;
 	else if (!strcmp(arg_name, "local_header"))	return GF_OK;
-	else if (!strcmp(arg_name, "low_delay"))	ctx->low_delay = GF_TRUE;
+	//activate opts for low delay
+	else if (!strcmp(arg_name, "flags")
+		&& arg_val && arg_val->value.string && strstr(arg_val->value.string, "low_delay")
+		&& !ctx->low_delay_mode
+	)
+		ctx->low_delay_mode = 1;
+	//activate opts for low delay
+	else if (!strcmp(arg_name, "low_delay") && !ctx->low_delay_mode)
+		ctx->low_delay_mode = 1;
 	//remap some options
 	else if (!strcmp(arg_name, "bitrate") || !strcmp(arg_name, "rate"))	arg_name = "b";
 //	else if (!strcmp(arg_name, "gop")) arg_name = "g";
 	//disable low delay if these options are set
-	else if (!strcmp(arg_name, "x264opts")) ctx->low_delay = GF_FALSE;
-	else if (!strcmp(arg_name, "profile")) ctx->low_delay = GF_FALSE;
-	else if (!strcmp(arg_name, "preset")) ctx->low_delay = GF_FALSE;
-	else if (!strcmp(arg_name, "tune")) ctx->low_delay = GF_FALSE;
+	else if (!strcmp(arg_name, "x264opts")) ctx->low_delay_mode = 2;
+	else if (!strcmp(arg_name, "x264-params")) ctx->low_delay_mode = 2;
+	else if (!strcmp(arg_name, "profile")) ctx->low_delay_mode = 2;
+	else if (!strcmp(arg_name, "preset")) ctx->low_delay_mode = 2;
+	else if (!strcmp(arg_name, "tune")) ctx->low_delay_mode = 2;
 
 	if (!strcmp(arg_name, "g") || !strcmp(arg_name, "gop"))
 		ctx->gop_size = arg_val->value.string ? atoi(arg_val->value.string) : 25;
@@ -2230,6 +2264,10 @@ GF_FilterRegister FFEncodeRegister = {
 		"If not found, it will consider the name to be a GPAC codec name and find a codec for it. In that case, if no pixel format is given, codecs will be enumerated to find a matching pixel format.\n"
 		"\n"
 		"Options can be passed from prompt using `--OPT=VAL` (global options) or appending `::OPT=VAL` to the desired encoder filter.\n"
+		"Encoder flags can be passed directly as `:FLAGNAME`.\n"
+		"\n"
+		"Note\n"
+		"Setting the `:low_delay` flag will set by default `profile=baseline`, `preset=ultrafast` and `tune=zerolatency` options as well as `x264-params` for AVC|H264. If one or more of these options are set as filter arguments, no defaulting is used for all these options.\n"
 		"\n"
 		"The filter will look for property `TargetRate` on input PID to set the desired bitrate per PID.\n"
 		"\n"
@@ -2256,7 +2294,8 @@ GF_FilterRegister FFEncodeRegister = {
 	.update_arg = ffenc_update_arg,
 	.flags = GF_FS_REG_META | GF_FS_REG_TEMP_INIT | GF_FS_REG_BLOCK_MAIN,
 	//use middle priority in case we have other encoders
-	.priority = 128
+	.priority = 128,
+	.hint_class_type = GF_FS_CLASS_ENCODER
 };
 
 #define OFFS(_n)	#_n, offsetof(GF_FFEncodeCtx, _n)
@@ -2270,6 +2309,12 @@ static const GF_FilterArgs FFEncodeArgs[] =
 	{ OFFS(ls), "log stats", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_ADVANCED},
 	{ OFFS(rc), "reset encoder when forcing intra frame (some encoders might not support intra frame forcing)", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_ADVANCED},
 	{ OFFS(rld), "force reloading of encoder when arguments are updated", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT|GF_FS_ARG_UPDATE},
+	{ OFFS(round), "round video up or down\n"
+	"- 0: no rounding\n"
+	"- 1: round up to match codec YUF format requirements\n"
+	"- -1: round down to match codec YUF format requirements\n"
+	"- other: round to lower (negative value) or higher (positive value), for example CTU size"
+	, GF_PROP_SINT, "1", NULL, GF_FS_ARG_HINT_EXPERT|GF_FS_ARG_UPDATE},
 
 	{ "*", -1, "any possible options defined for AVCodecContext and sub-classes. see `gpac -hx ffenc` and `gpac -hx ffenc:*`", GF_PROP_STRING, NULL, NULL, GF_FS_ARG_META},
 	{0}
