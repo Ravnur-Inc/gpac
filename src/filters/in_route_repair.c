@@ -27,6 +27,13 @@
 
 #ifndef GPAC_DISABLE_ROUTE
 
+
+#define FOURCC_COPY(address, offset, val1, val2, val3, val4) \
+						address[offset] = val1; \
+						address[offset + 1] = val2; \
+						address[offset + 2] = val3; \
+						address[offset + 3] = val4
+
 static void update_first_frag(GF_ROUTEEventFileInfo *finfo)
 {
 	//first bytes of segment have been patched (first seg only), update frag size and offset
@@ -67,10 +74,7 @@ static Bool routein_repair_segment_ts_local(ROUTEInCtx *ctx, u32 service_id, GF_
         start_range -= pos;
         while (start_range % 188) start_range++;
         while (pos<start_range) {
-            data[pos] = 0x47;
-            data[pos+1] = 0x1F;
-            data[pos+2] = 0xFF;
-            data[pos+3] = 0x10;
+			FOURCC_COPY(data, pos, 0x47, 0x1F, 0xFF, 0x10);
             pos += 188;
         }
         //end range not aligned with a packet start, rewind position to prev packet start
@@ -84,10 +88,7 @@ static Bool routein_repair_segment_ts_local(ROUTEInCtx *ctx, u32 service_id, GF_
     }
     //and patch all end packets
     while (pos<finfo->blob->size) {
-        data[pos] = 0x47;
-        data[pos+1] = 0x1F;
-        data[pos+2] = 0xFF;
-        data[pos+3] = 0x10;
+		FOURCC_COPY(data, pos, 0x47, 0x1F, 0xFF, 0x10);
         pos += 188;
     }
 	//remove corrupted flag
@@ -238,11 +239,8 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 				goto exit;
             }
 			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s injecting last free box pos %u size %u\n", finfo->filename, pos, remain));
-            data[pos] = (remain>>24) & 0xFF;
-            data[pos+1] = (remain>>16) & 0xFF;
-            data[pos+2] = (remain>>8) & 0xFF;
-            data[pos+3] = (remain) & 0xFF;
-			memcpy(data+pos+4, "free", 4);
+			FOURCC_COPY(data, pos, (remain>>24) & 0xFF, (remain>>16) & 0xFF, (remain>>8) & 0xFF, (remain) & 0xFF);
+			FOURCC_COPY(data, pos+4, 'f', 'r', 'e', 'e');
             remain-=8;
             if (remain>SAFETY_ERASE_BYTES) remain = SAFETY_ERASE_BYTES;
             memset(data+pos+8, 0, remain);
@@ -250,7 +248,7 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 			//we have a previous moof but no mdat header after, consider we completely lost the fragment
 			//so reset moof to free and erase mvhd
 			if (prev_moof_pos) {
-				memcpy(data+prev_moof_pos+4, "free", 4);
+				FOURCC_COPY(data, prev_moof_pos+4, 'f', 'r', 'e', 'e');
 				memset(data+prev_moof_pos+8, 0, 16);
 				prev_moof_pos = 0;
 				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s patching last moof (pos %u) to free and erase mvhd\n", finfo->filename, pos, prev_moof_pos));
@@ -272,11 +270,8 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 			nb_patches++;
 			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s injecting mid-stream free box between pos %u and pos %u size %u\n", finfo->filename, prev_pos, pos, missed_size));
 
-            data[prev_pos] = (missed_size>>24) & 0xFF;
-            data[prev_pos+1] = (missed_size>>16) & 0xFF;
-            data[prev_pos+2] = (missed_size>>8) & 0xFF;
-            data[prev_pos+3] = (missed_size) & 0xFF;
-			memcpy(data+prev_pos+4, "free", 4);
+			FOURCC_COPY(data, prev_pos, (missed_size>>24) & 0xFF, (missed_size>>16) & 0xFF, (missed_size>>8) & 0xFF, (missed_size) & 0xFF);
+			FOURCC_COPY(data, prev_pos+4, 'f', 'r', 'e', 'e');
             missed_size -= 8;
             if (missed_size>SAFETY_ERASE_BYTES) missed_size = SAFETY_ERASE_BYTES;
             memset(data+prev_pos+8, 0, missed_size);
@@ -284,7 +279,7 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 			//we have a previous moof but no mdat header anywere, consider we completely lost the fragment
 			//so reset moof to free and erase mvhd
 			if (prev_moof_pos) {
-				memcpy(data+prev_moof_pos+4, "free", 4);
+				FOURCC_COPY(data, prev_moof_pos+4, 'f', 'r', 'e', 'e');
 				memset(data+prev_moof_pos+8, 0, 16);
 				prev_moof_pos = 0;
 				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s patching last moof (pos %u) to free and erase mvhd\n", finfo->filename, pos, prev_moof_pos));
@@ -329,17 +324,17 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 		//incomplete mdat (strict mode), discard previous moof
 		if (is_mdat) {
 			if (prev_moof_pos) {
-				memcpy(data+prev_moof_pos+4, "free", 4);
+				FOURCC_COPY(data, prev_moof_pos+4, 'f', 'r', 'e', 'e');
 				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s patching mdat (pos %u size %u) and last moof (pos %u) to free\n", finfo->filename, pos, box_size, prev_moof_pos));
 				prev_moof_pos = 0;
 			} else {
 				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s patching mdat (pos %u size %u) to free\n", finfo->filename, pos, box_size));
 			}
-			memcpy(data+pos+4, "free", 4);
+			FOURCC_COPY(data, pos+4, 'f', 'r', 'e', 'e');
 			nb_patches++;
 		} else {
 			//incomplete box, move to free and erase begining of payload
-			memcpy(data+pos+4, "free", 4);
+			FOURCC_COPY(data, pos+4, 'f', 'r', 'e', 'e');
 			nb_patches++;
 
 			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s erasing incomplete box %s payload - size %u pos %u\n", finfo->filename, gf_4cc_to_str(type), box_size, pos));
@@ -365,7 +360,7 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 		if (ctx->repair == ROUTEIN_REPAIR_STRICT) {
 
 			if (prev_moof_pos) {
-				memcpy(data+prev_moof_pos+4, "free", 4);
+				FOURCC_COPY(data, prev_moof_pos+4, 'f', 'r','e', 'e');
 				nb_patches++;
 				//moof without mdat, consider the fragment lost
 				if (!prev_mdat_pos) {
@@ -378,7 +373,7 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, u32 service_id,
 
 			if (prev_mdat_pos) {
 				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[REPAIR] File %s patching mdat (pos %u) to free\n", finfo->filename, pos));
-				memcpy(data+prev_mdat_pos+4, "free", 4);
+				FOURCC_COPY(data, prev_mdat_pos+4, 'f', 'r', 'e', 'e');
 				nb_patches++;
 			}
 		}
